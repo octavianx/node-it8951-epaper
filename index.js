@@ -54,17 +54,17 @@ const BGVR = DISPLAY_REG_BASE + 0x250;  //Bitmap (1bpp) image color table
  **/
 
 const CONFIG = {
-    MAX_BUFFER_SIZE: 4096, // Can be changed to 32786 for example
+    MAX_BUFFER_SIZE: 32768, //4096, // Can be changed to 32786 for example
     PINS: {
         RST: 11, // 17 BCM
         CS: 24, // 8 BCM
         BUSY: 18, // 24 BCM
     },
-    VCOM: 2150, // Supports autodetection so if this is wrong, it will fix that for you
+    VCOM: 1530, // Supports autodetection so if this is wrong, it will fix that for you
     BPP: 4, // Rendering BPP (can be changed as required before each draw or display call)
     ALIGN4BYTES: false, // Use to support BPP1 situations for some specific Waveshare devices
     SWAP_BUFFER_ENDIANESS: true, // Repacks the buffer to Llittle Endian format
-    ROTATION: ROTATE0 // Not yet in use
+    ROTATION: ROTATE0 ,// Not yet in use
 };
 
 class IT8951 {
@@ -80,18 +80,23 @@ class IT8951 {
         this.initialized = true;
 
         this.gpio = rpio;
-        this.gpio.init({ mapping: 'physical', gpiomem: false });
-        
-        this.gpio.spiBegin();
-        this.gpio.spiSetClockDivider(32);
-        
+        this.gpio.init({ mapping: 'physical', gpiomem: false});
+
+    	this.gpio.spiBegin();
+	// modified by reinhard for 128 transferring speed
+	    this.gpio.spiSetDataMode(0); 
+        this.gpio.spiSetClockDivider(64); // only 64 or 128 will do, http://www.airspayce.com/mikem/bcm2835/group__constants.html#gaf2e0ca069b8caef24602a02e8a00884e
+
         this.gpio.open(this.config.PINS.CS, this.gpio.OUTPUT);
         this.gpio.open(this.config.PINS.RST, this.gpio.OUTPUT, this.gpio.HIGH);
         this.gpio.open(this.config.PINS.BUSY, this.gpio.INPUT, this.gpio.PULL_DOWN);
-        
+      
+    	//added by reinhard
+	    this.gpio.write(this.config.PINS.CS, this.gpio.HIGH);
+
+
         this.reset();
         this.activate();
-        this.wait_for_ready();
 
         // Get Device Info here
         this.write_command(CMD_GET_DEVICE_INFO);
@@ -108,8 +113,13 @@ class IT8951 {
         
         this.width = width;
         this.height = height;
+
+	 //if using 6inch, force the resolution
+	//this.width = 1448;
+	//this.height = 1072; 
+
         this.img_addr = (img_addr_h << 16) | img_addr_l;
-        
+       
         console.log("width = ", this.width);
         console.log("height = ", this.height);
         console.log("img_addr = ", this.img_addr.toString(16));
@@ -119,10 +129,12 @@ class IT8951 {
         // Set to Enable I80 Packed mode.
         this.write_register(REG_I80CPCR, 0x0001);
 
-        if (this.VCOM != this.get_vcom()) {
-            this.set_vcom(this.config.VCOM);
-            console.log("VCOM = ", (this.get_vcom() / 1000.0 * -1) + 'v');
-        }
+    	this.gotvcom = this.get_vcom()
+        if (this.config.VCOM != this.gotvcom) {
+		    console.log("Destiantion vcom is different from got:" , this.gotvcom)
+ 		    this.set_vcom(this.config.VCOM);
+        	console.log("if -1.53 ,then we are good to go. Effective VCOM = ", (this.get_vcom() / 1000.0 * -1) + 'v');
+       }
 
         // Initialize the display with a blank image.
         this.wait_for_ready();
@@ -212,12 +224,13 @@ class IT8951 {
 
     wait_for_ready() {
         /**
-         * Waits for the busy pin to drop.
-         * When the busy pin is high the controller is busy and may drop any
+         * Waits for the busy pin to PULL.
+         * When the busy pin is LOW the controller is busy and may drop any
          * commands that are sent to it.
          **/
         while (this.gpio.read(this.config.PINS.BUSY) == 0)
-			this.gpio.msleep(100);
+			//this.gpio.msleep(100);
+	    		this.wait(100);
     }
 
     wait_for_display_ready() {
@@ -233,12 +246,18 @@ class IT8951 {
     /** High Level Commands & Rendering ****************************************************************************************************************************** */
 
     get_vcom() {
+	    console.log("in function get_vcom");
         this.wait_for_ready();
+	    console.log("read, going to write command");
         this.write_command(CMD_VCOM, [0]);
+
         return bytesTo16(this.read_data(2));
     }
 
     set_vcom(vcom) {
+	    console.log("waiting for ready to setvcom");
+        this.wait_for_ready();
+	    console.log("ready, going to write vocom:", vcom)
         this.write_command(CMD_VCOM, [1, vcom]);
     }
 
@@ -306,6 +325,7 @@ class IT8951 {
 
     reset() {
         if (!this.initialized) return;
+	    console.log("set reset high->low -> high")
         this.gpio.write(this.config.PINS.RST, this.gpio.HIGH);
         this.wait(200);
         this.gpio.write(this.config.PINS.RST, this.gpio.LOW);
@@ -316,7 +336,8 @@ class IT8951 {
 
     activate() {
         if (!this.initialized) return;
-        this.write_command(CMD_SYS_RUN);
+	    console.log("driver:activate:writing CMD_SYS_RUN");
+	    this.write_command(CMD_SYS_RUN);
     }
 
     standby() {
@@ -327,6 +348,7 @@ class IT8951 {
     sleep() {
         if (!this.initialized) return;
         this.write_command(CMD_SLEEP);
+	    console.log("driver: asked to sleep");
     }
 
     close() {
@@ -334,7 +356,7 @@ class IT8951 {
         this.initialized = false;
 
         // this.wait(1500);
-        console.log('Setting display to standby');
+        console.log('Setting display to sleep？stanby[origin]? ');
         this.sleep();
         this.wait(3000);
         this.gpio.spiEnd();
