@@ -46,12 +46,16 @@ const LUT0IMXY = DISPLAY_REG_BASE + 0x180;  //LUT0 Image buffer X/Y offset Reg
 const LUTAFSR = DISPLAY_REG_BASE + 0x224;  //LUT Status Reg (status of All LUT Engines)
 const BGVR = DISPLAY_REG_BASE + 0x250;  //Bitmap (1bpp) image color table
 
+// screen size constants for 6 inch display
+const SIX_INCH_WIDTH = 1448;
+const SIX_INCH_HEIGHT = 1072;
 
 /**
  * A generic driver for displays that use a IT8951 controller board.
  * This class will automatically infer the width and height by querying the
  * controller.
  **/
+
 
 const CONFIG = {
     MAX_BUFFER_SIZE: 32768, //4096, // Can be changed to 32786 for example
@@ -74,6 +78,10 @@ class IT8951 {
         
         // Overrides for potentially other devices
         if (this.config.MODE_A2) DISPLAY_UPDATE_MODE_A2 = this.config.MODE_A2;
+
+        // add a force6inch option to force the resolution to 1448x1072 , incase the auto-detection fails
+        this.force6inch = options.force6inch || false;
+
     }
 
     init() {
@@ -85,7 +93,7 @@ class IT8951 {
     	this.gpio.spiBegin();
 	// modified by reinhard for 128 transferring speed
 	    this.gpio.spiSetDataMode(0); 
-        this.gpio.spiSetClockDivider(64); // only 64 or 128 will do, http://www.airspayce.com/mikem/bcm2835/group__constants.html#gaf2e0ca069b8caef24602a02e8a00884e
+        this.gpio.spiSetClockDivider(64); // only 64 or 128 will do, refer to http://www.airspayce.com/mikem/bcm2835/group__constants.html#gaf2e0ca069b8caef24602a02e8a00884e
 
         this.gpio.open(this.config.PINS.CS, this.gpio.OUTPUT);
         this.gpio.open(this.config.PINS.RST, this.gpio.OUTPUT, this.gpio.HIGH);
@@ -114,9 +122,18 @@ class IT8951 {
         this.width = width;
         this.height = height;
 
-	 //if using 6inch, force the resolution
-	//this.width = 1448;
-	//this.height = 1072; 
+        // If the device is a 6inch display, force the resolution to 1448x1072
+        if (this.force6inch) {
+            this.width = SIX_INCH_WIDTH;
+            this.height = SIX_INCH_HEIGHT;
+            console.warn("[IT8951] ⚠️ force6inch enabled: resolution set to 1448x1072");
+        }
+
+        if (!this.force6inch && (this.width === 0 || this.height === 0)) {
+            console.warn("[IT8951] ⚠️ Resolution detection failed, defaulting to 1448x1072");
+            this.width = SIX_INCH_WIDTH;
+            this.height = SIX_INCH_HEIGHT;
+        }
 
         this.img_addr = (img_addr_h << 16) | img_addr_l;
        
@@ -131,7 +148,7 @@ class IT8951 {
 
     	this.gotvcom = this.get_vcom()
         if (this.config.VCOM != this.gotvcom) {
-		    console.log("Destiantion vcom is different from got:" , this.gotvcom)
+		    console.log("Destination vcom is different from got:" , this.gotvcom)
  		    this.set_vcom(this.config.VCOM);
         	console.log("if -1.53 ,then we are good to go. Effective VCOM = ", (this.get_vcom() / 1000.0 * -1) + 'v');
        }
