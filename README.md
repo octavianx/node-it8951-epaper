@@ -8,6 +8,10 @@ Key features of this library:
 * Remappable Pins
 * Configurable Buffer Size, if you intend to change your [SPI buffer size](https://forums.raspberrypi.com/viewtopic.php?f=44&t=124472)
 
+2024-2025 updates
+* Support 6.5inch screen, like kindle paper white screen 
+* Support using Raspberry PI Zero 2W
+
 **Important Information For 1BPP Drawing**
 For 1BPP mode (black/white), some devices (E.g. Waveshare 6" HD E-Paper) have to turn on 4-byte align which forces the drawing of X and Width setting to be factors of 32.   
 Additionally, we still need to, depite the 1BPP definition, we would still have to provide 8-bit buffers (as a known workaround).  
@@ -25,6 +29,24 @@ See: https://www.waveshare.com/wiki/Template:EPaper_Codes_Descriptions-IT8951
   ```sh
   npm install node-it8951
   ```
+
+## Example Code for 6.5inch enforce 
+```js
+
+ 
+const IT8951 = require('node-it8951');
+
+const display = new IT8951({
+    MAX_BUFFER_SIZE: 32797,
+    ALIGN4BYTES: true,
+    VCOM: 1380 // use your device specified voltage, if -1.38, write 1380 here.
+    force6inch: true   // new param：for the resolution to be  1448x1072, while auto detection fails.
+});
+display.init();
+
+```
+ 
+
 
 ## Example Code
 ```js
