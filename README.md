@@ -1,170 +1,209 @@
 # node-it8951
-This is a port of the IT8951-ePaper [C driver from Waveshare](https://github.com/waveshare/IT8951-ePaper) combined with some concepts from the [Python PaperTTY IT8951 Driver](https://github.com/joukos/PaperTTY/blob/3ea8286903b98fac071285008b4cc05dd84c2121/papertty/drivers/driver_it8951.py)
 
-Key features of this library:
-* Fast, uses native GPIO libraries
+A Node.js driver for IT8951-based e-ink displays (Waveshare e-Paper HAT).
+
+This is a port of the IT8951-ePaper [C driver from Waveshare](https://github.com/waveshareteam/IT8951-ePaper) combined with some concepts from the [Python PaperTTY IT8951 Driver](https://github.com/joukos/PaperTTY/blob/3ea8286903b98fac071285008b4cc05dd84c2121/papertty/drivers/driver_it8951.py)
+
+## Key Features
+
+* Fast, uses native GPIO libraries (rpio)
 * Auto VCOM Detection
-* Supports 1,2,4 Bits Per Pixel (BPP)
+* Supports 1, 2, 4 Bits Per Pixel (BPP)
 * Remappable Pins
-* Configurable Buffer Size, if you intend to change your [SPI buffer size](https://forums.raspberrypi.com/viewtopic.php?f=44&t=124472)
+* Configurable Buffer Size
+* Support for 6" and 7.8" e-ink displays
+* Raspberry Pi Zero 2W compatible
 
-2024-2025 updates
-* Support 6.5inch screen, like kindle paper white screen 
-* Support using Raspberry PI Zero 2W
+## Waveshare Official Compatibility
 
-**Important Information For 1BPP Drawing**
-For 1BPP mode (black/white), some devices (E.g. Waveshare 6" HD E-Paper) have to turn on 4-byte align which forces the drawing of X and Width setting to be factors of 32.   
-Additionally, we still need to, depite the 1BPP definition, we would still have to provide 8-bit buffers (as a known workaround).  
-For the devices that support higher BPP, I would certainly recommend using those since you neither gain the fidelity nor the performance of using 1BPP.  
-See: https://www.waveshare.com/wiki/Template:EPaper_Codes_Descriptions-IT8951  
+This driver has been verified against the [Waveshare official IT8951 driver](https://github.com/waveshareteam/IT8951-ePaper) (2026-01):
 
+| Feature | This Driver | Waveshare Official | Status |
+|---------|-------------|-------------------|--------|
+| SPI Mode | `MODE0` | `BCM2835_SPI_MODE0` | Identical |
+| BUSY Pin Logic | `0=busy, 1=idle` | `0=busy, 1=idle` | Identical |
+| Reset Sequence | `HIGH→LOW→HIGH` | `HIGH→LOW→HIGH` | Identical |
+| Init Flow | Reset→SysRun→GetInfo→I80CPCR→VCOM | Same | Identical |
+| Clock Divider | `64` | `32` | More conservative (stable) |
 
-## In-Action Shot
-![Action Shot](https://i.postimg.cc/bwyHScRc/it8951.png)
+### Improvements Over Original
 
-## Dependencies
-1. [GPIO](https://github.com/jperkin/node-rpio)
+| Improvement | Description |
+|-------------|-------------|
+| `spiSetDataMode(0)` | Explicit SPI MODE0 setting for stability |
+| `CS pin HIGH` on init | Proper chip select initialization |
+| `wait_for_ready()` before `set_vcom()` | Ensures device ready before VCOM write |
+| `force6inch` option | Force 1448x1072 resolution when auto-detection fails |
+| Slower SPI clock (64 vs 32) | Better stability on Pi Zero 2W |
 
-## Getting Started
-  ```sh
-  npm install node-it8951
-  ```
+## Supported Displays
 
-## Example Code for 6.5inch enforce 
+| Display | Resolution | VCOM | Notes |
+|---------|------------|------|-------|
+| Waveshare 7.8" | 1872x1404 | 1380 | Check FPC cable for exact VCOM |
+| Waveshare 6" HD | 1448x1072 | ~1530 | Use `force6inch: true` if needed |
+| Kindle Paperwhite 6" | 1448x1072 | 1530 | Requires `force6inch: true` |
+
+## Installation
+
+```sh
+npm install node-it8951
+# or from GitHub
+npm install github:octavianx/node-it8951-epaper
+```
+
+## Quick Start
+
 ```js
-
- 
 const IT8951 = require('node-it8951');
 
 const display = new IT8951({
-    MAX_BUFFER_SIZE: 32797,
+    MAX_BUFFER_SIZE: 32768,
     ALIGN4BYTES: true,
-    VCOM: 1380 // use your device specified voltage, if -1.38, write 1380 here.
-    force6inch: true   // new param：for the resolution to be  1448x1072, while auto detection fails.
+    VCOM: 1380  // Check your screen's FPC cable for the correct value
 });
+
+display.init();
+display.clear();  // Clear to white
+display.close();
+```
+
+## Example: 6" Display with Force Option
+
+```js
+const IT8951 = require('node-it8951');
+
+const display = new IT8951({
+    MAX_BUFFER_SIZE: 32768,
+    ALIGN4BYTES: true,
+    VCOM: 1530,        // Kindle Paperwhite voltage
+    force6inch: true   // Force resolution to 1448x1072
+});
+
+display.init();
+```
+
+## Configuration Options
+
+```js
+const config = {
+    MAX_BUFFER_SIZE: 32768,  // SPI buffer size (default: 4096, recommended: 32768)
+    PINS: {
+        RST: 11,   // Physical pin 11 (BCM 17)
+        CS: 24,    // Physical pin 24 (BCM 8)
+        BUSY: 18,  // Physical pin 18 (BCM 24)
+    },
+    VCOM: 1380,              // Display VCOM voltage (check FPC cable)
+    BPP: 4,                  // Bits Per Pixel: 1, 2, or 4
+    ALIGN4BYTES: true,       // Required for 1BPP on some devices
+    SWAP_BUFFER_ENDIANESS: true,  // Little Endian format
+    force6inch: false,       // Force 1448x1072 resolution
+};
+```
+
+## API Reference
+
+### Constructor
+`new IT8951(config)` - Create a new driver instance with configuration options.
+
+### Core Methods
+
+| Method | Description |
+|--------|-------------|
+| `init()` | Initialize the display (required) |
+| `draw(buffer, x, y, w, h, display_mode)` | Transfer buffer and refresh area |
+| `displayArea(x, y, w, h, display_mode)` | Refresh a specific area |
+| `clear(color=0xFF, display_mode)` | Clear screen (0xFF=white, 0x00=black) |
+| `close()` | Shutdown driver and release GPIO |
+
+### Display Modes
+
+| Mode | Value | Description |
+|------|-------|-------------|
+| `INIT` | 0 | Fast, non-flashy, any gray to B/W |
+| `DU` | 1 | Fast, non-flashy update |
+| `GC16` | 2 | 16-level grayscale (flashy) |
+| `GL16` | 3 | Little ghosting |
+| `GLR16` | 4 | Heavy ghosting |
+| `GLD16` | 5 | Flashy |
+| `A2` | 6 | Flashy, any gray to any gray |
+| `DU4` | 7 | 4-level gray, fast, minimal ghosting |
+
+### Utility Methods
+
+| Method | Description |
+|--------|-------------|
+| `wait(ms)` | Delay before next operation |
+| `activate()` | Wake from standby |
+| `standby()` | Enter low-power standby |
+| `sleep()` | Enter deep sleep |
+| `reset()` | Hardware reset |
+
+## Example: Grayscale Gradient
+
+```js
+const IT8951 = require('node-it8951');
+
+const display = new IT8951({ MAX_BUFFER_SIZE: 32768, ALIGN4BYTES: true, VCOM: 1380 });
 display.init();
 
-```
- 
+// Draw 16-level grayscale gradient
+display.config.BPP = 4;
+const colors = [0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x88,
+                0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00];
+const segmentHeight = Math.trunc(display.height / colors.length);
 
+for (let i = 0; i < colors.length; i++) {
+    const buffer = Buffer.alloc(display.width * segmentHeight * display.config.BPP / 8, colors[i]);
+    display.draw(buffer, 0, segmentHeight * i, display.width, segmentHeight);
+}
 
-## Example Code
-```js
-    const IT8951 = require('node-it8951');
-
-    const display = new IT8951({ MAX_BUFFER_SIZE: 32797, ALIGN4BYTES: true });
-    display.init();
-    display.wait(2000);
-    sample4BPP(display);
-    display.wait(2000);
-    display.clear();
-    sample2BPP(display);
-    display.wait(2000);
-    display.clear();
-    sample1BPP(display);
-    display.wait(2000);
-    display.clear();
-    display.close();
-
-
-
-    function sample4BPP(display) {
-        display.config.BPP = 4; // BPP4
-        const colors = [0xFF,0xEE,0xDD,0xCC,0xBB,0xAA,0x99,0x88,0x77,0x66,0x55,0x44,0x33,0x22,0x11,0x00];
-        const segmentHeight = Math.trunc(display.height/colors.length);
-
-        for (let i=0; i<colors.length; i++) {
-            const buffer = Buffer.alloc(display.width * segmentHeight * display.config.BPP / 8, colors[i]);
-            display.draw(buffer, 0, segmentHeight * i, display.width, segmentHeight);
-        }
-    }
-
-    function sample2BPP(display) {
-        display.config.BPP = 2;
-        const hwidth = display.width/2;
-        const hheight = display.height/2;
-        const colors = [0xFF, 0xAA, 0x55, 0x00];
-        for (let i=0; i<colors.length; i++) {
-            const buffer = Buffer.alloc(hwidth * hheight * display.config.BPP / 8, colors[i]);
-            display.draw(buffer, i%2 * hwidth, Math.trunc(i/2) * hheight, hwidth, hheight);
-        }
-    }
-
-    function sample1BPP(display) {
-        display.config.BPP = 1;
-        const hwidth = display.width/2;
-        const colors = [0xFF, 0x00];
-        const buffer = Buffer.alloc(roundTo32(display.width/2) * display.height, 0x00);
-        display.draw(buffer, 0, 0, roundTo32(display.width/2), display.height);
-        display.config.BPP = 4;
-    }
-
-
-    function roundTo32(v) {
-        return v = v - (v % 32);
-    }
+display.wait(5000);
+display.close();
 ```
 
-## Functions Calls
-`IT8951(config)`
-Constructor that takes in a suite of parameters
-```js
-    const config = {
-        MAX_BUFFER_SIZE: 4096, // Can be changed to 32786 for example
-        PINS: {
-            RST: 11, // 17 BCM
-            CS: 24, // 8 BCM
-            BUSY: 18, // 24 BCM
-        },
-        VCOM: 2150, // Supports autodetection so if this is wrong, it will fix that for you
-        BPP: 4, // Rendering BPP (can be changed as required before each draw or display call). Valid values are 1, 2, 4
-        ALIGN4BYTES: false, // Use to support BPP1 situations for some specific Waveshare devices
-        SWAP_BUFFER_ENDIANESS: true, // Repacks the buffer to Llittle Endian format
-    };
+## Important Notes
+
+### 1BPP Mode
+For 1BPP mode (black/white), some devices (e.g., Waveshare 6" HD) require:
+- `ALIGN4BYTES: true` - Forces X and Width to be multiples of 32
+- 8-bit buffers despite 1BPP definition (known workaround)
+
+For devices supporting higher BPP, use those instead for better fidelity and performance.
+
+See: https://www.waveshare.com/wiki/Template:EPaper_Codes_Descriptions-IT8951
+
+### Root Permissions
+This driver requires root access for `/dev/mem`. Run with `sudo`:
+```sh
+sudo node your-script.js
 ```
 
-`IT8951.init()`  
-Runs the initialization sequence (Required).  
+## Hardware Setup
 
-`IT8951.draw(buffer, x, y, w, h, display_mode)`  
-Transfers the buffers to the device and refreshes the screen to the specific coordinates and dimensions.  
-Optional display_mode can be forwarded to `displayArea` call. Only call this if you are familiar with your device settings:  
-* DISPLAY_UPDATE_MODE_INIT = 0, A fast non-flashy update mode that can go from any gray scale color to black or white.
-* DISPLAY_UPDATE_MODE_GC16 = 2, For more documentation on display update modes see the reference document= http=//www.waveshare.net/w/upload/c/c4/E-paper-mode-declaration.pdf
-* DISPLAY_UPDATE_MODE_A2 = 6, A flashy update mode that can go from any gray scale color to any other gray scale color.
+Connect the IT8951 HAT to Raspberry Pi GPIO:
 
-
-`IT8951.displayArea(x, y, w, h, display_mode)`  
-Internal method used to repaint the display's based on the specific coordinates and dimensions.  
-
-`IT8951.clear(color=0xFF, display_mode)`  
-Flushes the screen to white, optionally send 0x00 for black.  
-
-`IT8951.wait()`  
-GPIO delay before the next event.  
-
-`IT8951.activate()`  
-Sets up the device, enable all clocks and go to active state. Already run as part of `init` sequence.  
-
-`IT8951.reset()`  
-Resets the display, Already run as part of `init` sequence.  
-
-`IT8951.standby()`  
-Gates of all clocks and goes into a standby state.  
-
-`IT8951.sleep()`  
-Disable all clocks and go to sleep. Already run as part of `close` sequence.  
-
-`IT8951.close()`  
-Shutsdown the driver and releases control of the GPIO and SPI pins.  
-
+| IT8951 Pin | RPi Physical Pin | BCM |
+|------------|------------------|-----|
+| RESET | 11 | 17 |
+| CS | 24 | 8 |
+| BUSY | 18 | 24 |
+| MOSI | 19 | 10 |
+| MISO | 21 | 9 |
+| SCLK | 23 | 11 |
 
 ## TODO
-* Test driver on other IT8951 Devces  
-* Support Rotation  
+- [ ] Support rotation
+- [ ] Test on more IT8951 devices
+- [ ] Add TypeScript definitions
 
+## Resources
 
-## Other Resources
-* [C driver from Waveshare](https://github.com/waveshare/IT8951-ePaper)
-* [Python PaperTTY IT8951 Driver](https://github.com/joukos/PaperTTY/blob/3ea8286903b98fac071285008b4cc05dd84c2121/papertty/drivers/driver_it8951.py)
-* [IT8951 Specifications Document](https://www.waveshare.net/w/upload/1/18/IT8951_D_V0.2.4.3_20170728.pdf)
+- [Waveshare Official IT8951 Driver (C)](https://github.com/waveshareteam/IT8951-ePaper)
+- [Python PaperTTY IT8951 Driver](https://github.com/joukos/PaperTTY)
+- [IT8951 Specifications Document](https://www.waveshare.net/w/upload/1/18/IT8951_D_V0.2.4.3_20170728.pdf)
+- [E-Paper Mode Declaration](http://www.waveshare.net/w/upload/c/c4/E-paper-mode-declaration.pdf)
+
+## License
+
+ISC
